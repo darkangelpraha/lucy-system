@@ -1,0 +1,134 @@
+# Google Cloud Build configuration for Lucy deployment
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:latest'
+      - '-f'
+      - 'deployment/Dockerfile'
+      - '.'
+
+  # Push the Docker image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:latest'
+
+  # Deploy to Cloud Run - Orchestrator
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lucy-orchestrator'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--max-instances'
+      - '10'
+      - '--set-env-vars'
+      - 'LUCY_ENV=production,LUCY_MODE=orchestrator'
+      - '--set-secrets'
+      - 'ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,MEM0_API_KEY=MEM0_API_KEY:latest,QDRANT_HOST=QDRANT_HOST:latest'
+
+  # Deploy to Cloud Run - Communications Assistant
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lucy-communications'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '5'
+      - '--set-env-vars'
+      - 'LUCY_ENV=production,LUCY_ASSISTANT=communications'
+      - '--set-secrets'
+      - 'QDRANT_HOST=QDRANT_HOST:latest'
+
+  # Deploy to Cloud Run - Knowledge Assistant
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lucy-knowledge'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '5'
+      - '--set-env-vars'
+      - 'LUCY_ENV=production,LUCY_ASSISTANT=knowledge'
+      - '--set-secrets'
+      - 'QDRANT_HOST=QDRANT_HOST:latest'
+
+  # Deploy to Cloud Run - Projects Assistant
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lucy-projects'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--max-instances'
+      - '5'
+      - '--set-env-vars'
+      - 'LUCY_ENV=production,LUCY_ASSISTANT=projects'
+      - '--set-secrets'
+      - 'QDRANT_HOST=QDRANT_HOST:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/lucy-assistant:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/lucy-assistant:latest'
+
+options:
+  machineType: 'N1_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1800s'

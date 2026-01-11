@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""
+Lucy CLI - Command Line Interface for Lucy Multi-Assistant System
+Complete production-ready interface
+"""
+
+import sys
+import argparse
+import json
+from pathlib import Path
+from typing import Optional
+
+# Add parent to path
+sys.path.append(str(Path(__file__).parent))
+
+from orchestrator.lucy_orchestrator import LucyOrchestrator
+from lucy_config import LucyDomain, LUCY_ASSISTANTS
+from knowledge.kb_manager import KnowledgeBaseManager
+from memory_manager import MemoryManager, LearningSystem
+
+
+class LucyCLI:
+    """Lucy command-line interface"""
+    
+    def __init__(self):
+        self.orchestrator = LucyOrchestrator()
+        print("✅ Lucy system loaded\n")
+    
+    def query(self, question: str, domain: Optional[str] = None, verbose: bool = False):
+        """Execute query through Lucy"""
+        
+        print(f"❓ Query: {question}\n")
+        
+        if domain:
+            # Force specific domain
+            try:
+                forced_domain = LucyDomain(domain)
+                result = self.orchestrator._execute_single_domain(forced_domain, question)
+            except ValueError:
+                print(f"❌ Unknown domain: {domain}")
+                print(f"   Available: {[d.value for d in LucyDomain]}")
+                return
+        else:
+            # Auto-route
+            result = self.orchestrator.route_query(question)
+        
+        # Display results
+        self._display_results(result, verbose)
+    
+    def _display_results(self, result: dict, verbose: bool = False):
+        """Display query results"""
+        
+        print(f"\n📊 Results:")
+        print(f"{'='*70}\n")
+        
+        # Single domain result
+        if 'domain' in result:
+            self._display_single_domain(result, verbose)
+        
+        # Multi-domain result
+        elif 'results' in result:
+            print(f"Strategy: {result['strategy']}")
+            print(f"Domains: {', '.join(result['domains'])}\n")
+            
+            for r in result['results']:
+                print(f"\n--- {r['assistant']} ---")
+                self._display_single_domain(r, verbose)
+            
+            # Aggregated stats
+            agg = result.get('aggregated', {})
+            print(f"\n📈 Aggregated:")
+            print(f"   Total domains: {agg.get('total_domains', 0)}")
+            print(f"   Total memories: {agg.get('total_memories', 0)}")
+            print(f"   Total KB results: {agg.get('total_knowledge_base_results', 0)}")
+    
+    def _display_single_domain(self, result: dict, verbose: bool):
+        """Display single domain results"""
+        
+        # Memories
+        memories = result.get('memories', [])
+        if memories:
+            print(f"💭 Memories ({len(memories)}):")
+            for mem in memories[:3]:  # Show first 3
+                print(f"   • [{mem['category']}] {mem['content'][:80]}...")
+            if len(memories) > 3:
+                print(f"   ... and {len(memories) - 3} more")
+        
+        # Knowledge base results
+        kb_results = result.get('knowledge_base_results', {})
+        if kb_results:
+            print(f"\n📚 Knowledge Base:")
+            for collection, items in kb_results.items():
+                if items:
+                    print(f"\n   {collection} ({len(items)} results):")
+                    for item in items[:2]:  # Show first 2
+                        if verbose:
+                            print(f"      {item['content'][:200]}...")
+                        else:
+                            meta = item.get('metadata', {})
+                            title = meta.get('title') or meta.get('subject') or 'No title'
+                            print(f"      • {title[:70]}")
+                            if meta.get('url'):
+                                print(f"        {meta['url']}")
+    
+    def learn(self, query: str, correction: str, domain: Optional[str] = None):
+        """Teach Lucy a correction"""
+        
+        namespace = f"lucy_{domain}" if domain else "lucy_orchestrator"
+        
+        self.orchestrator.learning.save_correction(
+            namespace=namespace,
+            original_query=query,
+            incorrect_response="Previous response",
+            correct_response=correction
+        )
+        
+        print(f"✅ Learned correction in {namespace}")
+    
+    def remember(self, content: str, category: str, domain: Optional[str] = None):
+        """Save explicit memory"""
+        
+        namespace = f"lucy_{domain}" if domain else "lucy_orchestrator"
+        
+        self.orchestrator.memory.add_memory(
+            namespace=namespace,
+            content=content,
+            category=category
+        )
+        
+        print(f"✅ Saved memory to {namespace}/{category}")
+    
+    def stats(self):
+        """Show system statistics"""
+        
+        stats = self.orchestrator.get_system_stats()
+        
+        print("\n📊 Lucy System Statistics")
+        print("=" * 70)
+        
+        print("\n📚 Knowledge Base:")
+        for name, stat in stats['knowledge_base'].items():
+            if 'error' not in stat:
+                print(f"   {name:25} {stat['points_count']:>8,} points")
+        
+        print("\n💭 Memory:")
+        for ns, stat in stats['memory'].items():
+            print(f"   {ns:25} {stat['total_memories']:>4} memories")
+            if stat['categories']:
+                for cat, count in list(stat['categories'].items())[:3]:
+                    print(f"      • {cat}: {count}")
+        
+        print("\n🤖 Assistants:")
+        for domain, config in stats['assistants'].items():
+            print(f"   {config['name']:25} Collections: {len(config['collections'])}")
+    
+    def search(self, query: str, collection: str, limit: int = 5):
+        """Direct knowledge base search"""
+        
+        kb = self.orchestrator.kb
+        
+        print(f"\n🔍 Searching {collection} for: {query}\n")
+        
+        if collection == "emails":
+            results = kb.search_emails(query=query, limit=limit)
+        elif collection == "tech_docs":
+            results = kb.search_tech_docs(query=query, limit=limit)
+        elif collection == "beeper":
+            results = kb.search_beeper(query=query, limit=limit)
+        else:
+            print(f"❌ Unknown collection: {collection}")
+            return
+        
+        print(f"Found {len(results)} results:\n")
+        for i, r in enumerate(results, 1):
+            print(f"{i}. {r.content[:150]}...")
+            print(f"   Metadata: {r.metadata}")
+            print()
+    
+    def list_memories(self, domain: str, category: Optional[str] = None):
+        """List memories for domain"""
+        
+        namespace = f"lucy_{domain}"
+        
+        if category:
+            memories = self.orchestrator.memory.get_memories_by_category(namespace, category)
+        else:
+            memories = self.orchestrator.memory.search_memories(namespace, limit=100)
+        
+        print(f"\n💭 Memories in {namespace}" + (f"/{category}" if category else ""))
+        print(f"Found {len(memories)} memories:\n")
+        
+        for mem in memories[:20]:  # Show first 20
+            print(f"• [{mem.category}] {mem.content[:80]}...")
+            print(f"  Created: {mem.created_at}")
+            print()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Lucy Multi-Assistant System CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Query with auto-routing
+  lucy query "Show me emails about Qdrant"
+  
+  # Query specific domain
+  lucy query "How do I use filters?" --domain knowledge
+  
+  # Teach correction
+  lucy learn "show tasks" "Should show only active tasks" --domain projects
+  
+  # Save memory
+  lucy remember "User prefers concise summaries" --category preference --domain communications
+  
+  # Show stats
+  lucy stats
+  
+  # Search knowledge base
+  lucy search "qdrant" --collection tech_docs
+  
+  # List memories
+  lucy list-memories --domain knowledge --category technical_knowledge
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    
+    # Query command
+    query_parser = subparsers.add_parser('query', help='Ask Lucy a question')
+    query_parser.add_argument('question', help='Your question')
+    query_parser.add_argument('--domain', help='Force specific domain')
+    query_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    
+    # Learn command
+    learn_parser = subparsers.add_parser('learn', help='Teach Lucy a correction')
+    learn_parser.add_argument('query', help='Original query')
+    learn_parser.add_argument('correction', help='Correct response')
+    learn_parser.add_argument('--domain', help='Domain to save to')
+    
+    # Remember command
+    remember_parser = subparsers.add_parser('remember', help='Save explicit memory')
+    remember_parser.add_argument('content', help='Memory content')
+    remember_parser.add_argument('--category', required=True, help='Memory category')
+    remember_parser.add_argument('--domain', help='Domain to save to')
+    
+    # Stats command
+    subparsers.add_parser('stats', help='Show system statistics')
+    
+    # Search command
+    search_parser = subparsers.add_parser('search', help='Search knowledge base')
+    search_parser.add_argument('query', help='Search query')
+    search_parser.add_argument('--collection', required=True, 
+                              choices=['emails', 'tech_docs', 'beeper'],
+                              help='Collection to search')
+    search_parser.add_argument('--limit', type=int, default=5, help='Result limit')
+    
+    # List memories command
+    list_parser = subparsers.add_parser('list-memories', help='List memories')
+    list_parser.add_argument('--domain', required=True, help='Domain')
+    list_parser.add_argument('--category', help='Category filter')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return
+    
+    # Initialize CLI
+    cli = LucyCLI()
+    
+    # Execute command
+    if args.command == 'query':
+        cli.query(args.question, args.domain, args.verbose)
+    
+    elif args.command == 'learn':
+        cli.learn(args.query, args.correction, args.domain)
+    
+    elif args.command == 'remember':
+        cli.remember(args.content, args.category, args.domain)
+    
+    elif args.command == 'stats':
+        cli.stats()
+    
+    elif args.command == 'search':
+        cli.search(args.query, args.collection, args.limit)
+    
+    elif args.command == 'list-memories':
+        cli.list_memories(args.domain, args.category)
+
+
+if __name__ == "__main__":
+    main()

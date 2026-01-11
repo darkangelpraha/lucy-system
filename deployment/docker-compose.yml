@@ -1,0 +1,93 @@
+version: "3.8"
+
+services:
+  lucy-orchestrator:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: lucy-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      - LUCY_ENV=production
+      - QDRANT_HOST=${QDRANT_HOST:-192.168.1.129}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MEM0_API_KEY=${MEM0_API_KEY}
+    volumes:
+      - lucy-data:/app/data
+      - lucy-logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - lucy-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  lucy-communications:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: lucy-communications
+    environment:
+      - LUCY_ASSISTANT=communications
+      - LUCY_ENV=production
+      - QDRANT_HOST=${QDRANT_HOST:-192.168.1.129}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+    volumes:
+      - lucy-data:/app/data
+      - lucy-logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - lucy-network
+    depends_on:
+      - lucy-orchestrator
+
+  lucy-knowledge:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: lucy-knowledge
+    environment:
+      - LUCY_ASSISTANT=knowledge
+      - LUCY_ENV=production
+      - QDRANT_HOST=${QDRANT_HOST:-192.168.1.129}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+    volumes:
+      - lucy-data:/app/data
+      - lucy-logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - lucy-network
+    depends_on:
+      - lucy-orchestrator
+
+  lucy-projects:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    container_name: lucy-projects
+    environment:
+      - LUCY_ASSISTANT=projects
+      - LUCY_ENV=production
+      - QDRANT_HOST=${QDRANT_HOST:-192.168.1.129}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+    volumes:
+      - lucy-data:/app/data
+      - lucy-logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - lucy-network
+    depends_on:
+      - lucy-orchestrator
+
+volumes:
+  lucy-data:
+  lucy-logs:
+
+networks:
+  lucy-network:
+    driver: bridge

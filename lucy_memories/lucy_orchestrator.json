@@ -1,0 +1,7 @@
+{
+  "namespace": "lucy_orchestrator",
+  "description": "Coordinates all Lucy assistants, routes queries, manages cross-domain tasks",
+  "created_at": "2026-01-11T08:50:44.897770",
+  "memories": [],
+  "categories": {}
+}
