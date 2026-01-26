@@ -26,7 +26,7 @@ requests==2.32.4
 # Utilities
 python-dotenv==1.0.0
 pyyaml==6.0.1
-python-multipart==0.0.18
+python-multipart==0.0.22
 
 # Linear API
 gql[all]==3.5.0
